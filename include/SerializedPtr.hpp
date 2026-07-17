@@ -58,10 +58,36 @@ public:
         SER_PTR32_ASSERT(mTable.size() >= 1); // ensure index 0 exists
         SER_PTR32_ASSERT(mTable.size() - 1 < cMaxIndex && "Ptr32Registry overflow (too many stored pointers).");
 
-        mTable.push_back(p);
-        u32 index = static_cast<u32>(mTable.size() - 1);
+        u32 index;
+        if (!mFreeList.empty())
+        {
+            index = mFreeList.back();
+            mFreeList.pop_back();
+            mTable[index] = p;
+        }
+        else
+        {
+            mTable.push_back(p);
+            index = static_cast<u32>(mTable.size() - 1);
+        }
+        ++mActiveCount;
         return encodeID(index);
     }
+
+    void release(u32 encoded) noexcept
+    {
+        if (!isEncodedID(encoded))
+            return;
+        const u32 index = decodeIndex(encoded);
+        SER_PTR32_ASSERT(index < mTable.size() && mTable[index] != nullptr);
+        if (index == 0 || index >= mTable.size() || mTable[index] == nullptr)
+            return;
+        mTable[index] = nullptr;
+        mFreeList.push_back(index);
+        --mActiveCount;
+    }
+
+    std::size_t activeCount() const noexcept { return mActiveCount; }
 
     void* load(u32 encoded) const noexcept
     {
@@ -99,6 +125,8 @@ public:
 
 private:
     std::vector<void*> mTable;
+    std::vector<u32> mFreeList;
+    std::size_t mActiveCount = 0;
 };
 
 class SerializedPtrBase
@@ -160,6 +188,16 @@ public:
         }
     }
 
+    void release() noexcept
+    {
+        if constexpr (!cNative32)
+        {
+            if (holdsID_())
+                Ptr32Registry::instance().release(mRaw);
+        }
+        mRaw = 0;
+    }
+
     T* getIndexed(int i) const noexcept
     {
         return &(get()[i]);
@@ -193,6 +231,24 @@ public:
 
         return static_cast<s32>(mRaw);
     }
+};
+
+template <class T>
+class ScopedSerializedPtrRegistration
+{
+public:
+    ScopedSerializedPtrRegistration(SerializedPtr<T>& field, T* pointer) noexcept
+        : mField(&field)
+    {
+        mField->set(pointer);
+    }
+
+    ~ScopedSerializedPtrRegistration() { mField->release(); }
+    ScopedSerializedPtrRegistration(const ScopedSerializedPtrRegistration&) = delete;
+    ScopedSerializedPtrRegistration& operator=(const ScopedSerializedPtrRegistration&) = delete;
+
+private:
+    SerializedPtr<T>* mField;
 };
 
 static_assert(sizeof(SerializedPtr<void>) == 4, "SerializedPtr must be exactly 4 bytes.");

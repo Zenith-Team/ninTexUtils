@@ -333,6 +333,9 @@ void GX2TextureFromLinear2D(GX2Texture* texture, u32 width, u32 height, u32 numM
     GX2CopySurface(&linear_surface, 0, 0, &texture->surface, 0, 0);
     for (u32 i = 1; i < numMips; i++)
         GX2CopySurface(&linear_surface, i, 0, &texture->surface, i, 0);
+
+    linear_surface.imagePtr.release();
+    linear_surface.mipPtr.release();
 }
 
 static const std::unordered_map<std::string, const u32> fourCCs_import {

@@ -357,6 +357,8 @@ void GFDFile::destroy()
             delete[] (u8*)texture.surface.imagePtr.get();
         if (texture.surface.mipPtr.get())
             delete[] (u8*)texture.surface.mipPtr.get();
+        texture.surface.imagePtr.release();
+        texture.surface.mipPtr.release();
     }
 
     mTextures.clear();
@@ -367,43 +369,66 @@ void GFDFile::destroy()
 
         if (shader.shaderPtr.get())
             delete[] (u8*)shader.shaderPtr.get();
+        shader.shaderPtr.release();
 
         if (shader.uniformBlocks.get())
         {
             for (u32 j = 0; j < shader.numUniformBlocks; j++)
+            {
                 delete[] shader.uniformBlocks.getIndexed(j)->name.get();
+                shader.uniformBlocks.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformBlocks.get();
+            shader.uniformBlocks.release();
         }
 
         if (shader.uniformVars.get())
         {
             for (u32 j = 0; j < shader.numUniforms; j++)
+            {
                 delete[] shader.uniformVars.getIndexed(j)->name.get();
+                shader.uniformVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformVars.get();
+            shader.uniformVars.release();
         }
 
         if (shader.initialValues.get())
+        {
             delete[] shader.initialValues.get();
+            shader.initialValues.release();
+        }
 
         if (shader._loopVars.get())
+        {
             delete[] (u32*)shader._loopVars.get();
+            shader._loopVars.release();
+        }
 
         if (shader.samplerVars.get())
         {
             for (u32 j = 0; j < shader.numSamplers; j++)
+            {
                 delete[] shader.samplerVars.getIndexed(j)->name.get();
+                shader.samplerVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.samplerVars.get();
+            shader.samplerVars.release();
         }
 
         if (shader.attribVars.get())
         {
             for (u32 j = 0; j < shader.numAttribs; j++)
+            {
                 delete[] shader.attribVars.getIndexed(j)->name.get();
+                shader.attribVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.attribVars.get();
+            shader.attribVars.release();
         }
     }
 
@@ -415,35 +440,54 @@ void GFDFile::destroy()
 
         if (shader.shaderPtr.get())
             delete[] (u8*)shader.shaderPtr.get();
+        shader.shaderPtr.release();
 
         if (shader.uniformBlocks.get())
         {
             for (u32 j = 0; j < shader.numUniformBlocks; j++)
+            {
                 delete[] shader.uniformBlocks.getIndexed(j)->name.get();
+                shader.uniformBlocks.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformBlocks.get();
+            shader.uniformBlocks.release();
         }
 
         if (shader.uniformVars.get())
         {
             for (u32 j = 0; j < shader.numUniforms; j++)
+            {
                 delete[] shader.uniformVars.getIndexed(j)->name.get();
+                shader.uniformVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformVars.get();
+            shader.uniformVars.release();
         }
 
         if (shader.initialValues.get())
+        {
             delete[] shader.initialValues.get();
+            shader.initialValues.release();
+        }
 
         if (shader._loopVars.get())
+        {
             delete[] (u32*)shader._loopVars.get();
+            shader._loopVars.release();
+        }
 
         if (shader.samplerVars.get())
         {
             for (u32 j = 0; j < shader.numSamplers; j++)
+            {
                 delete[] shader.samplerVars.getIndexed(j)->name.get();
+                shader.samplerVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.samplerVars.get();
+            shader.samplerVars.release();
         }
     }
 
@@ -455,38 +499,58 @@ void GFDFile::destroy()
 
         if (shader.shaderPtr.get())
             delete[] (u8*)shader.shaderPtr.get();
+        shader.shaderPtr.release();
 
         if (shader.copyShaderPtr.get())
             delete[] (u8*)shader.copyShaderPtr.get();
+        shader.copyShaderPtr.release();
 
         if (shader.uniformBlocks.get())
         {
             for (u32 j = 0; j < shader.numUniformBlocks; j++)
+            {
                 delete[] shader.uniformBlocks.getIndexed(j)->name.get();
+                shader.uniformBlocks.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformBlocks.get();
+            shader.uniformBlocks.release();
         }
 
         if (shader.uniformVars.get())
         {
             for (u32 j = 0; j < shader.numUniforms; j++)
+            {
                 delete[] shader.uniformVars.getIndexed(j)->name.get();
+                shader.uniformVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.uniformVars.get();
+            shader.uniformVars.release();
         }
 
         if (shader.initialValues.get())
+        {
             delete[] shader.initialValues.get();
+            shader.initialValues.release();
+        }
 
         if (shader._loopVars.get())
+        {
             delete[] (u32*)shader._loopVars.get();
+            shader._loopVars.release();
+        }
 
         if (shader.samplerVars.get())
         {
             for (u32 j = 0; j < shader.numSamplers; j++)
+            {
                 delete[] shader.samplerVars.getIndexed(j)->name.get();
+                shader.samplerVars.getIndexed(j)->name.release();
+            }
 
             delete[] shader.samplerVars.get();
+            shader.samplerVars.release();
         }
     }
 

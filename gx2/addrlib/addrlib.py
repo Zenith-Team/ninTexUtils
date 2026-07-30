@@ -26,27 +26,24 @@ def getDefaultGX2TileMode(dim, width, height, depth, format_, aa, use):
     use: use of the surface (GX2SurfaceUse)
     """
 
+    tileMode = 1
     isDepthBuffer = bool(use & 4)
     isColorBuffer = bool(use & 2)
 
-    if dim == 0 and not isDepthBuffer and aa == 0:
-        return 1
+    if dim or aa or isDepthBuffer:
+        if dim != 2 or isColorBuffer:
+            tileMode = 4
 
-    if dim == 2 and not isColorBuffer:
-        tileMode = 7
-    else:
-        tileMode = 4
+        else:
+            tileMode = 7
 
-    surfInfo = getSurfaceInfo(
-        format_, width, height, depth,
-        dim, tileMode, aa, 0
-    )
+        surfOut = getSurfaceInfo(format_, width, height, depth, dim, tileMode, aa, 0)
+        if width < surfOut.pitchAlign and height < surfOut.heightAlign:
+            if tileMode == 7:
+                tileMode = 3
 
-    if tileMode != surfInfo.tileMode:
-        tileMode = surfInfo.tileMode
-
-    if width < surfInfo.pitchAlign and height < surfInfo.heightAlign:
-        tileMode = 3 if tileMode == 7 else 2
+            else:
+                tileMode = 2
 
     return tileMode
 

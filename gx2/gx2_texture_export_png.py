@@ -55,6 +55,10 @@ def texureToRGBA8(width, height, format_, data, compSel):
     elif format_unorm == 0x35:
         data = bcn.decompressBC5(data, width, height, format_ >> 8)
 
+    if format_unorm in (0x31, 0x32, 0x33, 0x34, 0x35) \
+            and tuple(compSel) == (0, 1, 2, 3):
+        return bytes(data)
+
     return formConv.torgba8(width, height, bytearray(data), formatStr, bpp, compSel)
 
 

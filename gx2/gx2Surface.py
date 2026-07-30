@@ -116,36 +116,6 @@ class GX2Surface:
                 self.format, self.aa, self.use,
             ))
 
-        lastMipTileMode = self.tileMode
-        lastMipSize = 0
-        mip0Offs = 0
-
-        def calcNumLevelsForSize(size: int) -> int:
-            return size.bit_length()
-
-        def calcNumLevels() -> int:
-            if self.numMips <= 1:
-                return 1
-
-            levels = max(calcNumLevelsForSize(self.width), calcNumLevelsForSize(self.height))
-            if self.dim == GX2SurfaceDim.Dim3D:
-                levels = max(levels, calcNumLevelsForSize(self.depth))
-
-            return levels
-
-        self.numMips = max(self.numMips, 1)
-        self.numMips = min(self.numMips, calcNumLevels())
-
-        for i in range(13):
-            self.mipOffset[i] = 0
-
-        def isMacroTiled(tileMode: GX2TileMode) -> bool:
-            return GX2TileMode.Tiled_2D_Thin1 <= tileMode < GX2TileMode.Linear_Special
-
-        self.swizzle &= 0xFF00FFFF
-        if isMacroTiled(self.tileMode):
-            self.swizzle |= 13 << 16
-
         # Calculate the surface info for the base level
         surfInfo = addrlib.getSurfaceInfo(
             self.format, self.width, self.height, self.depth,
@@ -157,41 +127,51 @@ class GX2Surface:
         self.alignment = surfInfo.baseAlign
         self.pitch = surfInfo.pitch
 
-        for level in range(self.numMips):
+        self.swizzle &= 0x0700
+
+        tiling1dLevel = 0
+        tiling1dLevelSet = GX2TileMode(surfInfo.tileMode) in (
+            GX2TileMode.Linear_Aligned, GX2TileMode.Linear_Special,
+            GX2TileMode.Tiled_1D_Thin1, GX2TileMode.Tiled_1D_Thick,
+        )
+        if not tiling1dLevelSet:
+            tiling1dLevel += 1
+
+        self.mipSize = 0
+        for mipLevel in range(1, self.numMips):
             surfInfo = addrlib.getSurfaceInfo(
                 self.format, self.width, self.height, self.depth,
-                self.dim, self.tileMode, self.aa, level
+                self.dim, self.tileMode, self.aa, mipLevel,
             )
-            mipPad = 0
 
-            if isMacroTiled(lastMipTileMode) and not isMacroTiled(GX2TileMode(surfInfo.tileMode)):
-                self.swizzle &= 0xFF00FFFF
-                self.swizzle |= level << 16
-                lastMipTileMode = GX2TileMode(surfInfo.tileMode)
+            # Make sure the level is aligned
+            self.mipSize = roundUp(self.mipSize, surfInfo.baseAlign)
 
-                if level > 1:
-                    mipPad = self.swizzle & 0xFFFF
+            if mipLevel == 1:
+                # Level 1 alignment should suffice to ensure all the other levels are aligned as well
+                self.mipOffset[0] = roundUp(self.imageSize, surfInfo.baseAlign)
 
-            mipPad += (surfInfo.baseAlign - (lastMipSize % surfInfo.baseAlign)) % surfInfo.baseAlign
-
-            if level == 1:
-                mip0Offs = lastMipSize + mipPad
             else:
-                self.mipOffset[level - 1] = self.mipOffset[level - 2] + lastMipSize + mipPad
+                self.mipOffset[mipLevel - 1] = self.mipSize
 
-            lastMipSize = surfInfo.surfSize
+            self.mipSize += surfInfo.surfSize
 
-        mipSize = 0
-        if self.numMips > 1:
-            mipSize = self.mipOffset[self.numMips - 2] + lastMipSize
+            if not tiling1dLevelSet:
+                tileMode = GX2TileMode(surfInfo.tileMode)
+                if tileMode in (GX2TileMode.Tiled_1D_Thin1, GX2TileMode.Tiled_1D_Thick):
+                    tiling1dLevelSet = True
 
-        self.mipSize = mipSize
-        self.mipOffset[0] = mip0Offs
+                else:
+                    tiling1dLevel += 1
 
-        if self.format == GX2SurfaceFormat.Unorm_NV12:
-            pad = (self.alignment - (self.imageSize % self.alignment)) % self.alignment
-            self.mipOffset[0] = self.imageSize + pad
-            self.imageSize = self.imageSize + pad + (self.imageSize >> 1)
+        #  If the tiling mode never switched to 1D tiling, set the start level to 13 (observed from existing files)
+        if not tiling1dLevelSet:
+            tiling1dLevel = 13
+
+        self.swizzle |= tiling1dLevel << 16
+
+        for mipLevel in range(self.numMips, 14):
+            self.mipOffset[mipLevel - 1] = 0
 
     @staticmethod
     def copySurface(src, dst):

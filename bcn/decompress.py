@@ -236,97 +236,201 @@ def fetch_2d_texel_rg_bc5_snorm(srcRowStride, pixdata, i, j):
     return RCOMP, GCOMP
 
 
-def decompressDXT1(data, width, height):
-    output = bytearray(width * height * 4)
 
-    for y in range(height):
-        for x in range(width):
-            R, G, B, A = fetch_2d_texel_rgba_dxt1(width, data, x, y)
 
+def _color_palette(data, offset, dxt_type):
+    color0 = data[offset] | (data[offset + 1] << 8)
+    color1 = data[offset + 2] | (data[offset + 3] << 8)
+    c0 = (
+        EXP5TO8R(color0), EXP6TO8G(color0), EXP5TO8B(color0),
+    )
+    c1 = (
+        EXP5TO8R(color1), EXP6TO8G(color1), EXP5TO8B(color1),
+    )
+    if color0 > color1:
+        c2 = tuple((2 * a + b) // 3 for a, b in zip(c0, c1))
+        c3 = tuple((a + 2 * b) // 3 for a, b in zip(c0, c1))
+    else:
+        c2 = tuple((a + b) // 2 for a, b in zip(c0, c1))
+        c3 = (
+            tuple((a + 2 * b) // 3 for a, b in zip(c0, c1))
+            if dxt_type > 1 else (0, 0, 0)
+        )
+    return (c0, c1, c2, c3), color0, color1
+
+
+def _alpha_palette(data, offset, signed=False):
+    alpha0 = data[offset]
+    alpha1 = data[offset + 1]
+    values = [alpha0, alpha1]
+    if signed:
+        s0 = ToSigned8(alpha0)
+        s1 = ToSigned8(alpha1)
+        if s0 > s1:
+            values.extend(
+                ToUnsigned8((s0 * (8 - code) + s1 * (code - 1)) // 7)
+                for code in range(2, 8)
+            )
+        else:
+            values.extend(
+                ToUnsigned8((s0 * (6 - code) + s1 * (code - 1)) // 5)
+                for code in range(2, 6)
+            )
+            values.extend((0x80, 0x7F))
+    elif alpha0 > alpha1:
+        values.extend(
+            (alpha0 * (8 - code) + alpha1 * (code - 1)) // 7
+            for code in range(2, 8)
+        )
+    else:
+        values.extend(
+            (alpha0 * (6 - code) + alpha1 * (code - 1)) // 5
+            for code in range(2, 6)
+        )
+        values.extend((0, 255))
+    return values
+
+
+def _alpha_code(data, offset, pixel_index):
+    bits = int.from_bytes(data[offset + 2:offset + 8], "little")
+    return (bits >> (pixel_index * 3)) & 7
+
+
+def _write_color_block(output, width, height, block_x, block_y, data,
+                       block_offset, dxt_type, alpha_values=None,
+                       explicit_alpha=False):
+    colors, color0, color1 = _color_palette(data, block_offset, dxt_type)
+    color_bits = int.from_bytes(data[block_offset + 4:block_offset + 8], "little")
+    for py in range(4):
+        y = block_y * 4 + py
+        if y >= height:
+            break
+        for px in range(4):
+            x = block_x * 4 + px
+            if x >= width:
+                break
+            pixel_index = py * 4 + px
+            code = (color_bits >> (pixel_index * 2)) & 3
+            r, g, b = colors[code]
+            if explicit_alpha:
+                alpha_byte = data[block_offset - 8 + pixel_index // 2]
+                a = EXP4TO8(alpha_byte >> (4 * (pixel_index & 1)) & 0xF)
+            elif alpha_values is None:
+                a = 0 if code == 3 and color0 <= color1 and dxt_type == 1 else 255
+            else:
+                a = alpha_values[_alpha_code(data, block_offset - 8, pixel_index)]
             pos = (y * width + x) * 4
+            output[pos:pos + 4] = bytes((r, g, b, a))
 
-            output[pos + 0] = R
-            output[pos + 1] = G
-            output[pos + 2] = B
-            output[pos + 3] = A
 
+def _decode_dxt1_blocked(data, width, height):
+    output = bytearray(width * height * 4)
+    blocks_x = (width + 3) // 4
+    blocks_y = (height + 3) // 4
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+            _write_color_block(
+                output, width, height, bx, by, data,
+                (by * blocks_x + bx) * 8, 1,
+            )
     return bytes(output)
+
+
+def _decode_dxt3_blocked(data, width, height):
+    output = bytearray(width * height * 4)
+    blocks_x = (width + 3) // 4
+    blocks_y = (height + 3) // 4
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+            _write_color_block(
+                output, width, height, bx, by, data,
+                (by * blocks_x + bx) * 16 + 8, 2,
+                explicit_alpha=True,
+            )
+    return bytes(output)
+
+
+def _decode_dxt5_blocked(data, width, height):
+    output = bytearray(width * height * 4)
+    blocks_x = (width + 3) // 4
+    blocks_y = (height + 3) // 4
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+            block = (by * blocks_x + bx) * 16
+            _write_color_block(
+                output, width, height, bx, by, data, block + 8, 2,
+                alpha_values=_alpha_palette(data, block),
+            )
+    return bytes(output)
+
+
+def _decode_bc4_blocked(data, width, height, snorm):
+    output = bytearray(width * height * 4)
+    blocks_x = (width + 3) // 4
+    blocks_y = (height + 3) // 4
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+            block = (by * blocks_x + bx) * 8
+            palette = _alpha_palette(data, block, bool(snorm))
+            for py in range(4):
+                y = by * 4 + py
+                if y >= height:
+                    break
+                for px in range(4):
+                    x = bx * 4 + px
+                    if x >= width:
+                        break
+                    value = palette[_alpha_code(data, block, py * 4 + px)]
+                    if snorm:
+                        value = ToSigned8(value) + 128
+                    pos = (y * width + x) * 4
+                    output[pos:pos + 4] = bytes((value, value, value, 255))
+    return bytes(output)
+
+
+def _decode_bc5_blocked(data, width, height, snorm):
+    output = bytearray(width * height * 4)
+    blocks_x = (width + 3) // 4
+    blocks_y = (height + 3) // 4
+    for by in range(blocks_y):
+        for bx in range(blocks_x):
+            block = (by * blocks_x + bx) * 16
+            red = _alpha_palette(data, block, bool(snorm))
+            green = _alpha_palette(data, block + 8, bool(snorm))
+            for py in range(4):
+                y = by * 4 + py
+                if y >= height:
+                    break
+                for px in range(4):
+                    x = bx * 4 + px
+                    if x >= width:
+                        break
+                    pixel_index = py * 4 + px
+                    r = red[_alpha_code(data, block, pixel_index)]
+                    g = green[_alpha_code(data, block + 8, pixel_index)]
+                    if snorm:
+                        r = ToSigned8(r) + 128
+                        g = ToSigned8(g) + 128
+                    pos = (y * width + x) * 4
+                    output[pos:pos + 4] = bytes((r, g, 0, 255))
+    return bytes(output)
+
+
+def decompressDXT1(data, width, height):
+    return _decode_dxt1_blocked(data, width, height)
 
 
 def decompressDXT3(data, width, height):
-    output = bytearray(width * height * 4)
-
-    for y in range(height):
-        for x in range(width):
-            R, G, B, A = fetch_2d_texel_rgba_dxt3(width, data, x, y)
-
-            pos = (y * width + x) * 4
-
-            output[pos + 0] = R
-            output[pos + 1] = G
-            output[pos + 2] = B
-            output[pos + 3] = A
-
-    return bytes(output)
+    return _decode_dxt3_blocked(data, width, height)
 
 
 def decompressDXT5(data, width, height):
-    output = bytearray(width * height * 4)
-
-    for y in range(height):
-        for x in range(width):
-            R, G, B, A = fetch_2d_texel_rgba_dxt5(width, data, x, y)
-
-            pos = (y * width + x) * 4
-
-            output[pos + 0] = R
-            output[pos + 1] = G
-            output[pos + 2] = B
-            output[pos + 3] = A
-
-    return bytes(output)
+    return _decode_dxt5_blocked(data, width, height)
 
 
 def decompressBC4(data, width, height, SNORM):
-    output = bytearray(width * height * 4)
-
-    for y in range(height):
-        for x in range(width):
-            if SNORM:
-                R = ToSigned8(fetch_2d_texel_r_bc4_snorm(width, data, x, y)) + 128
-
-            else:
-                R = fetch_2d_texel_r_bc4(width, data, x, y)
-
-            pos = (y * width + x) * 4
-
-            output[pos + 0] = R
-            output[pos + 1] = R
-            output[pos + 2] = R
-            output[pos + 3] = 255
-
-    return bytes(output)
+    return _decode_bc4_blocked(data, width, height, SNORM)
 
 
 def decompressBC5(data, width, height, SNORM):
-    output = bytearray(width * height * 4)
-
-    for y in range(height):
-        for x in range(width):
-            if SNORM:
-                R, G = fetch_2d_texel_rg_bc5_snorm(width, data, x, y)
-
-                R = ToSigned8(R) + 128
-                G = ToSigned8(G) + 128
-
-            else:
-                R, G = fetch_2d_texel_rg_bc5(width, data, x, y)
-
-            pos = (y * width + x) * 4
-
-            output[pos + 0] = R
-            output[pos + 1] = G
-            output[pos + 2] = 0
-            output[pos + 3] = 255
-
-    return bytes(output)
+    return _decode_bc5_blocked(data, width, height, SNORM)
